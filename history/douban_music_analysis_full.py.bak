@@ -1,0 +1,291 @@
+# -*- coding: utf-8 -*-
+"""豆瓣音乐 Top 250：单文件重新爬取 + 清洗 + 可视化（Python 3.11）
+
+安装：python -m pip install requests beautifulsoup4 pandas matplotlib
+运行：python douban_music_analysis_full.py
+
+不依赖任何旧 CSV、HTML 或修复脚本。每次运行都重新请求公开榜单 10 页。
+注意：如果豆瓣实际网页缺少某些榜单条目，程序会如实报告缺失排名，绝不伪造数据。
+请尊重网站使用规则；出现验证码、403、418 或 429 时停止运行。
+"""
+
+from __future__ import annotations
+
+import re
+import time
+from datetime import datetime
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import pandas as pd
+import requests
+from bs4 import BeautifulSoup
+
+
+# ============= 可修改的设置 =============
+BASE_URL = "https://music.douban.com/top250"
+PAGE_COUNT = 10               # 共 10 页；测试时可改为 1
+PAGE_SIZE = 25
+REQUEST_DELAY = 3.0          # 每页间隔 3 秒，避免频繁请求
+TIMEOUT = 15
+OUTPUT_DIR = Path(__file__).resolve().parent / "output"
+# ======================================
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
+COLUMNS = [
+    "榜单名次", "专辑名称", "歌手", "发行日期", "发行年份",
+    "唱片类型", "载体", "音乐流派", "豆瓣评分", "评价人数",
+    "专辑链接", "抓取时间",
+]
+
+
+def parse_music_page(html: str, start: int, collected_at: str):
+    """解析一页 HTML，按网页自己的 onclick i 索引取真实名次。"""
+    soup = BeautifulSoup(html, "html.parser")
+    rows = soup.select("tr.item")
+    records: list[dict] = []
+    issues: list[str] = []
+
+    for local_index, row in enumerate(rows, 1):
+        # 常规标题链接；一些条目的 HTML 可能不同，所以预留图片链接作为回退。
+        title_link = row.select_one('.pl2 a[href*="/subject/"]')
+        cover_link = row.select_one('a.nbg[href*="/subject/"]')
+        link_tag = title_link or cover_link
+        if link_tag is None:
+            issues.append(f"页面起始 {start}：第 {local_index} 个条目缺少专辑链接")
+            continue
+
+        link = link_tag.get("href", "").strip()
+        if not link.startswith("https://music.douban.com/subject/"):
+            issues.append(f"页面起始 {start}：第 {local_index} 个条目的链接异常：{link}")
+            continue
+
+        name = title_link.get_text(" ", strip=True) if title_link else ""
+        if not name and cover_link:
+            cover_title = cover_link.get("title", "").strip()
+            if " - " in cover_title:
+                name = cover_title.split(" - ", 1)[1]
+            elif cover_link.select_one("img[alt]"):
+                image_alt = cover_link.select_one("img[alt]").get("alt", "").strip()
+                name = image_alt.split(" - ", 1)[-1]
+        if not name:
+            issues.append(f"页面起始 {start}：第 {local_index} 个条目没有名称：{link}")
+            continue
+
+        # HTML 里 i:'75' 表示真实榜单第 76 名。
+        # 不用 start+local_index，因为豆瓣有些分页会跳过中间的名次。
+        onclick = (cover_link.get("onclick", "") if cover_link else "") or link_tag.get("onclick", "")
+        rank_match = re.search(r"\bi\s*:\s*['\"](\d+)['\"]", onclick)
+        if rank_match is None:
+            issues.append(f"页面起始 {start}：条目缺少官方排名索引：{link}")
+            continue
+        rank = int(rank_match.group(1)) + 1
+        if not start + 1 <= rank <= start + PAGE_SIZE:
+            issues.append(f"页面起始 {start}：条目排名越界 {rank}：{link}")
+            continue
+
+        metadata_tag = row.select_one("p.pl")
+        metadata = metadata_tag.get_text(" ", strip=True) if metadata_tag else ""
+        # 常见内容：表演者 / 发行日期 / 专辑版本 / 载体 / 流派
+        parts = [p.strip() for p in re.split(r"\s+/\s+", metadata) if p.strip()]
+        artist = parts[0] if parts else "未知"
+        release_date = next((x for x in parts[1:] if re.search(r"(?:19|20)\d{2}", x)), "")
+        year_match = re.search(r"(?:19|20)\d{2}", release_date)
+        release_year = int(year_match.group()) if year_match else None
+        album_type = parts[2] if len(parts) >= 4 else ""
+        medium = parts[-2] if len(parts) >= 4 else ""
+        genre = parts[-1] if len(parts) >= 3 else "未知"
+
+        score_tag = row.select_one(".rating_nums")
+        score = score_tag.get_text(strip=True) if score_tag else ""
+        people_match = re.search(r"([\d,]+)\s*人评价", row.get_text(" ", strip=True))
+        people = int(people_match.group(1).replace(",", "")) if people_match else None
+
+        records.append({
+            "榜单名次": rank,
+            "专辑名称": name,
+            "歌手": artist,
+            "发行日期": release_date,
+            "发行年份": release_year,
+            "唱片类型": album_type,
+            "载体": medium,
+            "音乐流派": genre,
+            "豆瓣评分": score,
+            "评价人数": people,
+            "专辑链接": link,
+            "抓取时间": collected_at,
+        })
+    return records, issues, len(rows)
+
+
+def crawl_all_pages():
+    if not 1 <= PAGE_COUNT <= 10:
+        raise ValueError("PAGE_COUNT 必须是 1~10")
+    session = requests.Session()
+    session.headers.update(HEADERS)
+    all_records = []
+    diagnostics = []
+    collected_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    for page in range(PAGE_COUNT):
+        start = page * PAGE_SIZE
+        print(f"[{page + 1}/{PAGE_COUNT}] 请求豆瓣音乐 ?start={start}", flush=True)
+        try:
+            response = session.get(BASE_URL, params={"start": start}, timeout=TIMEOUT)
+            print("    HTTP 状态码：", response.status_code, flush=True)
+            if response.status_code in (403, 418, 429):
+                raise RuntimeError(f"网站限制访问（HTTP {response.status_code}），请停止请求")
+            response.raise_for_status()
+        except requests.RequestException as exc:
+            raise RuntimeError(f"第 {page + 1} 页请求失败：{exc}") from exc
+
+        response.encoding = "utf-8"
+        page_records, issues, candidates = parse_music_page(response.text, start, collected_at)
+        if not page_records:
+            raise RuntimeError(f"第 {page + 1} 页没有取得唱片数据；检查网页结构或是否出现验证页面")
+
+        present = {int(r["榜单名次"]) for r in page_records}
+        missing_here = sorted(set(range(start + 1, start + PAGE_SIZE + 1)) - present)
+        print(f"    网页条目 {candidates} 个，成功解析 {len(page_records)} 条")
+        if missing_here:
+            print(f"    网页未提供或解析失败的名次：{missing_here}")
+
+        if missing_here or issues:
+            # 只在发生缺失时保存 HTML 供核查，不依赖旧网页或其它文件。
+            debug_dir = OUTPUT_DIR / "debug_pages"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            filename = debug_dir / f"page_start_{start}.html"
+            filename.write_text(response.text, encoding="utf-8")
+            diagnostics.append(f"第 {page+1} 页：HTML 条目 {candidates}，解析 {len(page_records)}，缺失名次 {missing_here}，源码 {filename.name}")
+            diagnostics.extend("  " + issue for issue in issues)
+        all_records.extend(page_records)
+
+        if page < PAGE_COUNT - 1:
+            time.sleep(REQUEST_DELAY)
+
+    raw = pd.DataFrame(all_records, columns=COLUMNS)
+    raw["榜单名次"] = pd.to_numeric(raw["榜单名次"], errors="raise").astype(int)
+    raw = raw.sort_values("榜单名次").reset_index(drop=True)
+    if raw["榜单名次"].duplicated().any() or raw["专辑链接"].duplicated().any():
+        raise ValueError("网页数据存在重复排名或重复专辑链接，已停止导出，请核查异常分页")
+
+    full_rank_set = set(range(1, PAGE_COUNT * PAGE_SIZE + 1))
+    missing = sorted(full_rank_set - set(raw["榜单名次"].tolist()))
+    report = [
+        f"采集时间：{collected_at}",
+        f"抓取页数：{PAGE_COUNT}",
+        f"目标名次：1~{PAGE_COUNT * PAGE_SIZE}",
+        f"实际获取条数：{len(raw)}",
+        f"缺失名次：{missing if missing else '无'}",
+        "",
+        "异常分页详情：",
+        *(diagnostics or ["无"]),
+        "",
+        "说明：本次确实重新请求了网页。豆瓣未返回的条目不会被虚构或重新编号。",
+    ]
+    (OUTPUT_DIR / "缺失名次核查报告.txt").write_text("\n".join(report) + "\n", encoding="utf-8")
+    print("真实缺失名次：", missing if missing else "无")
+    return raw
+
+
+def clean_data(raw: pd.DataFrame) -> pd.DataFrame:
+    clean = raw.copy()
+    clean["豆瓣评分"] = pd.to_numeric(clean["豆瓣评分"], errors="coerce")
+    clean["发行年份"] = pd.to_numeric(clean["发行年份"], errors="coerce").astype("Int64")
+    clean["评价人数"] = pd.to_numeric(clean["评价人数"], errors="coerce").astype("Int64")
+    for col in ("歌手", "音乐流派"):
+        clean[col] = clean[col].fillna("未知").replace("", "未知")
+    return clean
+
+
+def save_chart(fig, name):
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / name, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    print("    图表已生成：", name)
+
+
+def visualize(df: pd.DataFrame):
+    plt.rcParams["font.sans-serif"] = [
+        "PingFang SC", "Heiti SC", "Microsoft YaHei", "SimHei",
+        "Noto Sans CJK SC", "DejaVu Sans",
+    ]
+    plt.rcParams["axes.unicode_minus"] = False
+
+    genres = df["音乐流派"].value_counts().head(10).sort_values()
+    fig, ax = plt.subplots(figsize=(10, 5))
+    genres.plot(kind="barh", ax=ax)
+    ax.set(title="豆瓣音乐 Top 250 · 流派分布", xlabel="唱片数量", ylabel="音乐流派")
+    save_chart(fig, "01_音乐流派分布.png")
+
+    years = df["发行年份"].dropna().astype(int)
+    decades = ((years // 10) * 10).value_counts().sort_index()
+    fig, ax = plt.subplots(figsize=(10, 5))
+    decades.plot(kind="bar", ax=ax)
+    ax.set(title="上榜唱片的发行年代分布", xlabel="发行年代", ylabel="唱片数量")
+    ax.tick_params(axis="x", rotation=0)
+    save_chart(fig, "02_年代分布.png")
+
+    scores = df["豆瓣评分"].dropna()
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.hist(scores, bins=12, edgecolor="white")
+    ax.set(title="豆瓣评分分布", xlabel="评分", ylabel="唱片数量")
+    save_chart(fig, "03_评分分布.png")
+
+    scatter = df.dropna(subset=["评价人数", "豆瓣评分"])
+    scatter = scatter[scatter["评价人数"] > 0]
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.scatter(scatter["评价人数"].astype(float), scatter["豆瓣评分"], alpha=0.68)
+    ax.set_xscale("log")
+    ax.set(title="评价人数与评分的关系", xlabel="评价人数（对数刻度）", ylabel="豆瓣评分")
+    save_chart(fig, "04_评分与评价人数.png")
+
+    artists = df["歌手"].value_counts().head(10).sort_values()
+    fig, ax = plt.subplots(figsize=(10, 5))
+    artists.plot(kind="barh", ax=ax)
+    ax.set(title="上榜唱片数量最多的歌手（含组合署名）", xlabel="唱片数量", ylabel="歌手")
+    save_chart(fig, "05_歌手上榜数量.png")
+
+
+def main():
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print("豆瓣音乐 Top 250：从头抓取所有页面（无需旧 CSV）")
+    raw = crawl_all_pages()
+    clean = clean_data(raw)
+    # 数据全部采集后才写 CSV，避免因半途失败覆盖先前的完整结果。
+    raw.to_csv(OUTPUT_DIR / "豆瓣音乐Top250_原始数据.csv", index=False, encoding="utf-8-sig")
+    clean.to_csv(OUTPUT_DIR / "豆瓣音乐Top250_清洗后.csv", index=False, encoding="utf-8-sig")
+    visualize(clean)
+    score_count = int(clean["豆瓣评分"].notna().sum())
+    average = float(clean["豆瓣评分"].mean()) if score_count else float("nan")
+    summary = [
+        f"抓取时间：{datetime.now():%Y-%m-%d %H:%M:%S}",
+        f"请求页数：{PAGE_COUNT}",
+        f"原始记录数：{len(raw)}",
+        f"去重后记录数：{len(clean)}",
+        f"有效评分数：{score_count}",
+        f"平均评分：{average:.2f}" if score_count else "平均评分：无有效评分",
+        "注意：实际条数不足 250 时，应以缺失名次核查报告为准。",
+        "",
+        "最常见的 10 个音乐流派：",
+        clean["音乐流派"].value_counts().head(10).to_string(),
+    ]
+    (OUTPUT_DIR / "统计摘要.txt").write_text("\n".join(summary) + "\n", encoding="utf-8")
+    print(f"\n完成！共爬取 {len(clean)} 条记录，平均评分 {average:.2f}")
+    print("输出目录：", OUTPUT_DIR)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (RuntimeError, ValueError, requests.RequestException) as error:
+        print("运行未完成：", error)
+        raise SystemExit(1) from error

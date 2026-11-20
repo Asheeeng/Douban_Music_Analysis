@@ -1,0 +1,38 @@
+INFO 开始实时抓取豆瓣音乐 Top 250；日志：/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/logs/运行_20261019_160210_625834.log
+INFO [1/10] 请求 https://music.douban.com/top250?start=0
+INFO HTTP 200；响应 46238 字节；URL https://music.douban.com/top250?start=0
+INFO DOM 25 条；成功解析 25 条；网页缺失名次 []
+INFO [2/10] 请求 https://music.douban.com/top250?start=25
+INFO HTTP 200；响应 46692 字节；URL https://music.douban.com/top250?start=25
+INFO DOM 25 条；成功解析 25 条；网页缺失名次 []
+INFO [3/10] 请求 https://music.douban.com/top250?start=50
+INFO HTTP 200；响应 46183 字节；URL https://music.douban.com/top250?start=50
+INFO DOM 25 条；成功解析 25 条；网页缺失名次 []
+INFO [4/10] 请求 https://music.douban.com/top250?start=75
+INFO HTTP 200；响应 44863 字节；URL https://music.douban.com/top250?start=75
+INFO DOM 24 条；成功解析 24 条；网页缺失名次 [82]
+INFO [5/10] 请求 https://music.douban.com/top250?start=100
+INFO HTTP 200；响应 45046 字节；URL https://music.douban.com/top250?start=100
+INFO DOM 24 条；成功解析 24 条；网页缺失名次 [111]
+INFO [6/10] 请求 https://music.douban.com/top250?start=125
+INFO HTTP 200；响应 45220 字节；URL https://music.douban.com/top250?start=125
+INFO DOM 24 条；成功解析 24 条；网页缺失名次 [133]
+INFO [7/10] 请求 https://music.douban.com/top250?start=150
+INFO HTTP 200；响应 46470 字节；URL https://music.douban.com/top250?start=150
+INFO DOM 25 条；成功解析 25 条；网页缺失名次 []
+INFO [8/10] 请求 https://music.douban.com/top250?start=175
+INFO HTTP 200；响应 46375 字节；URL https://music.douban.com/top250?start=175
+INFO DOM 25 条；成功解析 25 条；网页缺失名次 []
+INFO [9/10] 请求 https://music.douban.com/top250?start=200
+INFO HTTP 200；响应 46027 字节；URL https://music.douban.com/top250?start=200
+INFO DOM 25 条；成功解析 25 条；网页缺失名次 []
+INFO [10/10] 请求 https://music.douban.com/top250?start=225
+INFO HTTP 200；响应 46319 字节；URL https://music.douban.com/top250?start=225
+INFO DOM 25 条；成功解析 25 条；网页缺失名次 []
+INFO 图表生成：01_音乐流派分布.png（247 条）
+INFO 图表生成：02_年代分布.png（247 条）
+INFO 图表生成：03_评分分布.png（247 条）
+INFO 图表生成：04_评分与评价人数.png（247 条）
+INFO 图表生成：05_歌手上榜数量.png（247 条）
+INFO 上一份完整输出已归档：/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/history/output_20261019_160244_772026
+INFO 完成：247 条真实唱片；缺失名次 [82, 111, 133]；输出目录 /Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/output

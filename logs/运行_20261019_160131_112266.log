@@ -1,0 +1,51 @@
+INFO 开始实时抓取豆瓣音乐 Top 250；日志：/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/logs/运行_20261019_160131_112266.log
+INFO [1/10] 请求 https://music.douban.com/top250?start=0
+ERROR 本次失败证据保存在 /Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/logs/failed_46gr3yds；正式输出未替换
+ERROR 运行失败，未发布新结果
+urllib3.exceptions.SSLError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1016)
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/.venv/lib/python3.11/site-packages/requests/adapters.py", line 696, in send
+    resp = conn.urlopen(
+           ^^^^^^^^^^^^^
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/.venv/lib/python3.11/site-packages/urllib3/connectionpool.py", line 847, in urlopen
+    retries = retries.increment(
+              ^^^^^^^^^^^^^^^^^^
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/.venv/lib/python3.11/site-packages/urllib3/util/retry.py", line 555, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='music.douban.com', port=443): Max retries exceeded with url: /top250?start=0 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1016)')))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/douban_music_analysis.py", line 232, in crawl_all_pages
+    response = session.get(BASE_URL, params={"start": start}, timeout=TIMEOUT)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/.venv/lib/python3.11/site-packages/requests/sessions.py", line 671, in get
+    return self.request("GET", url, params=params, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/.venv/lib/python3.11/site-packages/requests/sessions.py", line 651, in request
+    resp = self.send(prep, **send_kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/.venv/lib/python3.11/site-packages/requests/sessions.py", line 784, in send
+    r = adapter.send(request, **kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/.venv/lib/python3.11/site-packages/requests/adapters.py", line 727, in send
+    raise SSLError(e, request=request)
+requests.exceptions.SSLError: HTTPSConnectionPool(host='music.douban.com', port=443): Max retries exceeded with url: /top250?start=0 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1016)')))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/douban_music_analysis.py", line 470, in main
+    check = run_pipeline()
+            ^^^^^^^^^^^^^^
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/douban_music_analysis.py", line 440, in run_pipeline
+    raw, pages = crawl_all_pages(run_dir)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/suis/Developer/2026-2027Works/Python_works/douban_music_analysis/douban_music_analysis.py", line 240, in crawl_all_pages
+    raise RuntimeError(f"start={start} 请求失败：{type(exc).__name__}: {exc}") from exc
+RuntimeError: start=0 请求失败：SSLError: HTTPSConnectionPool(host='music.douban.com', port=443): Max retries exceeded with url: /top250?start=0 (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1016)')))
